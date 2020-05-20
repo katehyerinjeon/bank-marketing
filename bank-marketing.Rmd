@@ -1,0 +1,147 @@
+---
+title: "Stat 36858 Project"
+output: word_document
+---
+
+# Introduction
+
+A term deposit is a deposit that a bank or a financial instituion offers with a fixed rate in which your money will be returned back at a specific maturity time. The dataset1 contains banking marketing campaign information and we can use it to optimize marketing campaigns to attract more customers for term deposit subscription. Goal of analysis is to identify factors which affect the campaign results in order to find out ways to make
+marketing campaigns more efficient.
+
+```{r}
+# Set up
+setwd("~/Documents/Fall 2019/STAT 36858")
+library(tidyverse); library(VGAM)
+
+# Data import
+bank = read_csv("bank.csv")
+
+# Trimming data
+bank = bank %>% select(-pdays) %>% mutate(default = as.integer(default ==
+"yes"), housing = as.integer(housing == "yes"), loan = as.integer(loan ==
+"yes"), deposit = as.integer(deposit == "yes"))
+```
+
+The input variables of the data are as below.  
+a) age: age of the customer  
+b) job: type of job (one of ‘admin’, ‘blue-collar’, ‘entrepreneur’, ‘housemaid’, ‘management’, ‘retired’, ‘self-employed’, ‘services’, ‘student’, ‘technician’, ‘unemployed’, or ‘unknown’)  
+c) marital: marital status (one of ‘divorced’, ‘married’, ‘single’ or ‘unknown’) (note: ‘divorced’ includes being widowed)  
+d) education: education status (one of ‘primary’, ‘secondary’, ‘tertiary’ or ‘unknown’)  
+e) default: whether the customer has credit in default (one of ‘yes’, ‘no’ or ‘unknown’)  
+f) housing: wheter the customer has housing loan (one of ‘yes’, ‘no’ or ‘unknown’)  
+g) loan: wheter the customer has personal loan (one of ‘yes’, ‘no’ or ‘unknown’)  
+h) balance: balance of the individual  
+i) contact: contact communication type (one of ‘cellular’, ‘telephone’ or ‘unknown’)  
+j) month: last contact month of year (one of ‘jan’, ‘feb’, … or ‘dec’)  
+k) day: last contact day of week (one of ‘mon’, ‘tue’, ‘wed’, ‘thu’ or ‘fri’)  
+l) duration: last contact duration  
+m) campaign: number of contacts performed during this campaign to this client  
+n) pdays: number of days that passed by after the client was last contacted from a previous campaign  
+o) previous: number of contacts performed before this campaign and for this client  
+p) deposit: whether the customer subscribed a term deposit (one of ‘yes’ or ‘no’)  
+
+Fortunately, it is known that there are no missing values in the dataset and thus we proceed with the given one. We set binary variable ‘deposit’ as our response variable since it is the desired target and only focus on age, balance, month and campaign as our explanatory variables.
+
+# Exploring the Basic Statistics
+
+```{r}
+attach(bank)
+mean(age); min(age); max(age)
+mean(campaign); median(campaign)
+mean(deposit)
+detach(bank)
+```
+
+The mean age is approximately 41 years old. The youngest is 18 years old and the oldest is
+95 years old. From now on, we categorize age into four categories including clients whose
+age is below 30, in between 30 and 50, in between 50 and 70 and above 70. Meanwhile, we
+also split twelve months into four categories by season.
+
+```{r}
+# Factorizing 'age'
+age1 = bank %>% rename(age_int = "age") %>% filter(age_int < 30) %>% mutate(age = 1)
+age2 = bank %>% rename(age_int = "age") %>% filter(30 <= age_int, age_int < 50) %>% mutate(age = 2)
+age3 = bank %>% rename(age_int = "age") %>% filter(50 <= age_int, age_int < 70) %>% mutate(age = 3)
+age4 = bank %>% rename(age_int = "age") %>% filter(age_int > 70) %>% mutate(age = 4)
+bank = rbind(age1, age2, age3, age4) %>% select(-age_int) %>% select(age, everything())
+bank$age = as.factor(bank$age)
+
+# Factorizing 'month'
+month1 = bank %>% rename(month_chr = "month") %>% filter(month_chr %in% c("mar", "apr", "may")) %>% mutate(month = "spring")
+month2 = bank %>% rename(month_chr = "month") %>% filter(month_chr %in% c("jun", "jul", "aug")) %>% mutate(month = "summer")
+month3 = bank %>% rename(month_chr = "month") %>% filter(month_chr %in% c("sep", "oct", "nov")) %>% mutate(month = "fall")
+month4 = bank %>% rename(month_chr = "month") %>% filter(month_chr %in% c("dec", "jan", "feb")) %>% mutate(month = "winter")
+bank = rbind(month1, month2, month3, month4) %>% select(-month_chr) %>% select("age", "job", "marital", "education", "default", "balance", "housing", "loan", "contact", "day", "month", everything())
+bank$month = as.factor(bank$month)
+```
+
+# Fitting Logistic Regression Model by Variable
+
+## a) Age
+```{r}
+(bank_age = bank %>% group_by(age, deposit) %>% summarize(n = n()) %>% spread(key = deposit, value = n) %>% rename(yes = '1', no = '0') %>% select(age, yes, no) %>% replace_na(list(no = 0)))
+bank$age = relevel(bank$age, ref = "4")
+age_glm = glm(cbind(yes, no) ~ age, data = bank_age, family = binomial)
+summary(age_glm)
+ggplot(bank, aes(age, fill = as.factor(deposit))) + geom_bar(position = "dodge") + labs(fill = "deposit")
+```
+
+All estimates for group 1, 2 and 3 are negative meaning group 4 had the most deposit subscription. This can also be noticed from the bar chart since group 4 is the group with the biggest rate of subscription. It can be intuitively understood that the elderly are more likely to save money by term deposit after retiring. However, in bar chart we can also see group 1 having more subscribed count than unsubscribed count. This is also very natural since a lot of people in group 1 would be students.
+
+## b) Balance
+```{r}
+bal_glm = glm(deposit ~ balance, data = bank, family = binomial)
+summary(bal_glm)
+cor(bank$balance, bank$deposit)
+```
+
+The estimate for balance is nearly zero. By looking at the correlation between balance and deposit, it also has a value near zero. We can conclude that balance does not matter on term deposit subscription.
+
+## c) Month
+
+```{r}
+(bank_month = bank %>% group_by(month, deposit) %>% summarize(n = n()) %>% spread(key = deposit, value = n) %>% rename(yes = '1', no = '0') %>% select(month, yes, no))
+bank$month = relevel(bank$month, ref = "winter")
+month_glm = glm(cbind(yes, no) ~ month, data = bank_month, family = binomial)
+summary(month_glm)
+ggplot(bank, aes(month, fill = as.factor(deposit))) + geom_bar(position = "dodge") + labs(fill = "deposit")
+```
+
+All estimates have small p-value and the estimates for fall and winter turn out to be positive. It can also be seen from the bar chart that it is more likely of customers to subscribe for a term deposit than to decline in fall and winter compared to spring and summer.
+
+## d) Campaign
+
+```{r}
+camp_glm = glm(deposit ~ campaign, data = bank, family = binomial)
+summary(camp_glm)
+bank %>% filter(campaign <= 10) %>% ggplot(aes(as.factor(campaign), fill = as.factor(deposit))) + geom_bar(position = "dodge") + labs(x = "campaign", fill = "deposit")
+```
+
+The p-value turns out to be very small and thus the variable can be said significant. The
+estimate is negative meaning the it has anti-effect on convincing customers to subscribe.
+However, looking at the bar chart we can roughly say up to 3 campaign calls is effective. If it
+exceeds the number then clients tend to decline the offer making it inadequate.
+
+# Fitting Multiple Logistic Regression Model
+
+Assuming there are no interactions between any two variables, we fit the model using all
+dependent variables only with main effects.
+
+```{r}
+bank_full = glm(deposit ~ age + balance + month + campaign, data = bank,
+family = binomial)
+summary(bank_full)
+```
+
+We process both backward and forward elimination to select a logistic regression model.
+
+```{r}
+step(bank_full, direction = "backward")
+step(bank_full, direction = "forward")
+```
+
+Both results from the two steps are identical and happen to be the full model. Yet, the estimate for balance 5.185e-05 (0.00005185) is almost zero and hence balance would not give a big difference in deposit variable.
+
+# Conclusion
+
+The next marketing campaign of the bank should target potential clients in their 20s or younger and 70s or older. It will be great if for the next campaign the bank addressed these two categories and therefore, increase the likelihood of more term deposits suscriptions. In addition, customers opted to suscribe term deposits during the seasons of fall and winter. The next marketing campaign should focus its activity throughout these seasons. Finally, a policy should be implemented that states that no more than 3 calls should be applied to the same potential customer in order to save time and effort in getting new potential clients. Too much calls would actually result in people to decline opening a term deposit.
